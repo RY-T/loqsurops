@@ -7,3 +7,5 @@ bedtools merge or overlap
 Bed to Fasta
 
 Fasta to Indexes
+
+checksum md5
