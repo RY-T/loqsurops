@@ -1,48 +1,41 @@
-#Snakefile for building Indexes
-#raw fasta in up in 1 directory
+#helppage
+#http://slowkow.com/notes/snakemake-tutorial
 
-#---------demo-----------
-#rule quantify_genes:
-#    input:
-#        genome = 'genome.fa',
-#        r1 = 'fastq/{sample}.R1.fastq.gz',
-#        r2 = 'fastq/{sample}.R2.fastq.gz'
-#    output:
-#        '{sample}.txt'
-#    shell:
-#        'echo {input.genome} {input.r1} {input.r2} > {output}'
-#-----------demo------------
+CHR_LIST= [line.rstrip('\n') for line in open('Chr_list.txt')]
 
+rule all:
+    input:
+        'test.txt'
 
-#remove unmapped scaffolds from genome
-rule extra_chr_from_genome:
+rule extract_impt_chr:
+    input:
+        genome = 'dmel-all-chromosome-r6.16.fasta'
+    output:
+        '{Chr_list}.temp'
+    shell:"""
+    samtools faidx {input.genome}
+    samtools faidx {input.genome} {wildcards.Chr_list} > {output}
+    """
+        
+rule make_Index_0:
 	input:
-		genome = "../FastaLoqs/dmel-all-chromosome-r6.16.fasta",
-		#list of chr to include
-		#cat Chr_list.txt | xargs > Chrlist.txt
-		Chr_list = "Chr_list.txt"
+		expand('{Chr_list}.temp', Chr_list=CHR_LIST)
 	output:
-		"../FastaLoqs/2L.temp"
-	shell:
-		"""
-		samtools faidx {input.genome}
-#		cat {input.Chr_list} | while read line
-#		do
-#		"samtools faidx {input.genome} $line > {output}.$line.temp"
-#		done
-		samtools faidx {input.genome} 2L > {output}
-		"""
+		'Index0.fa'
+	shell:"""
+	cat {input} > {output}
+	rm {input}
+	"""
 
-#combine and remove temp to make index0
-rule make_index0:
-	input:
-		"../FastaLoqs/{sample}.temp"
-	output:
-		"../FastaLoqs/Index0.fa"
-		#List = "output.done"
-	shell:
-		"""
-		cat {wildcards.sample} > {output}
-		rm {wildcards.sample}
-		"""
 
+rule collate_outputs:
+    input:
+        'Index0.fa'
+    output:
+        'test.txt'
+    run:
+        with open(output[0], 'w') as out:
+            for i in input:
+                sample = i.split('.')[0]
+                for line in open(i):
+                    out.write(sample + ' ' + line)
