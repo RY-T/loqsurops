@@ -3,9 +3,13 @@
 
 CHR_LIST= [line.rstrip('\n') for line in open('Chr_list.txt')]
 
+RepeatMasker_Dir='/usr/local/RepeatMasker/RepeatMasker'
+
+
 rule all:
     input:
-        'test.txt'
+        'Index0.fa',
+        'RM_output'
 
 rule extract_impt_chr:
     input:
@@ -26,16 +30,26 @@ rule make_Index_0:
 	cat {input} > {output}
 	rm {input}
 	"""
+rule repeatMasker:
+	input: 
+		genome = 'Index0.fa',
+		RM_Dir = RepeatMasker_Dir
+	output:
+		'RM_output'
+	shell:"""
+	mkdir -p {output} && {input.RM_Dir} -dir {output} -species drosophila {input.genome}
+	"""
 
 
-rule collate_outputs:
-    input:
-        'Index0.fa'
-    output:
-        'test.txt'
-    run:
-        with open(output[0], 'w') as out:
-            for i in input:
-                sample = i.split('.')[0]
-                for line in open(i):
-                    out.write(sample + ' ' + line)
+#rule collate_outputs:
+#    input:
+#    	'RM_output'
+#        
+#    output:
+#        'test.txt'
+#    run:
+#        with open(output[0], 'w') as out:
+#            for i in input:
+#                sample = i.split('.')[0]
+#                for line in open(i):
+#                    out.write(sample + ' ' + line)
