@@ -1,5 +1,6 @@
 #helppage
 #http://slowkow.com/notes/snakemake-tutorial
+#add comments
 
 #snakemake --dag | dot -Tsvg > dag.svg
 import os
@@ -28,10 +29,10 @@ rule all:
         'modified_bed/RM_output.bed',
         expand('modified_bed/{RM_Genetype}RM.bed', RM_Genetype=RM_GENETYPES),
         'modified_bed/RNAonlyRM.bed',
-#        'Liftover_files/mirbase21_dm6.bed',
-#        'Liftover_files/liftover_unmapped',
+        'modified_bed/pri_miRNA_mirbase21_dm6.bed',
         expand('modified_bed/fasta/{genetype}.fa', genetype=Modified_bed_files),
-        'modified_bed/fasta/bt_indexes'
+        'modified_bed/fasta/bt_indexes',
+        'modified_bed/fasta/pri_miRNA.fa'
 
 rule extract_impt_chr:
     input:
@@ -59,7 +60,8 @@ rule repeatMasker:
 	output:
 		'RM_output'
 	shell:"""
-	mkdir -p {output} && {input.RM_Dir} -dir {output} -species drosophila {input.genome}
+	mkdir -p {output} 
+	{input.RM_Dir} -dir {output} -species drosophila {input.genome}
 	"""
 
 rule extract_bed_from_RMout: 
@@ -73,17 +75,6 @@ rule extract_bed_from_RMout:
 	mkdir -p 'modified_bed'
 	awk -f ./RMout2bed.awk {input} > {output}
 	"""
-
-#rule pandas_search_from_modified_bed_part1:
-#	input:'modified_bed/RM_output.bed'
-#part 1 extract RNA out first, part2 then from RNA, extract tRNA, etc...
-#	output: 
-#		expand('modified_bed/{RM_Genetype}.bed', RM_Genetype=RM_GENETYPES)
-#	run:"""
-#		everything = pd.read_csv('{input}',sep="\t+",header=None)
-#		something = everything[everything.iloc[:,3].str.contains({wildcards.RM_Genetype})]
-#		something.to_csv('{output}',sep='\t',index=False)
-#		"""
 
 rule pandas_search_from_modified_bed_part1:
 	input:
@@ -119,29 +110,30 @@ rule pandas_search_from_modified_bed_part2:
 		something = pd.concat([everything,rRNA,tRNA]).drop_duplicates(keep=False)
 		something.to_csv(os.path.join(out_dir, out_file),sep='\t',index=False, header=False)
 
-##liftover does not work
-#rule dme3gff3_to_bed:
-#	input:
-#		dme3gff3 = 'Liftover_files/dme.gff3' 
-#	output:
-#		dme3bed	='Liftover_files/mirbasedme3.bed'
-#	shell: """
-#	awk -f ./Gff3toBed.awk {input.dme3gff3} > {output.dme3bed}
-#	"""
+#liftover does not work
+#Gff3toBed also selects for pri-miRNA
+rule liftover_mirbase21_to_dm6bed:
+	input:
+		dme3gff3 = 'Liftover_files/dme.gff3',
+		dme3bed	='Liftover_files/mirbasedme3.bed',
+		chainfile = 'Liftover_files/dm3ToDm6.over.chain',
+		genome = 'Index0.fa' 
+
+	output:
+		dme3bed	='Liftover_files/mirbasedme3.bed',
+		newFile = 'Liftover_files/mirbase21_dm6.bed',
+		unMapped ='Liftover_files/liftover_unmapped',
+		final_bed= 'modified_bed/pri_miRNA_mirbase21_dm6.bed',
+		fasta_out='modified_bed/fasta/pri_miRNA.fa'
+	shell: """
+	awk -f ./Gff3toBed.awk {input.dme3gff3} > {output.dme3bed}
+	liftOver {input.dme3bed} {input.chainfile} {output.newFile} {output.unMapped}
+	awk -f ./RemoveChr.awk {output.newFile} > {output.final_bed}
+	bedtools getfasta -name -fi {input.genome} -bed {output.final_bed} -fo {output.fasta_out}
+	"""
 
 #install UCSC liftover, get chainfile from flybase, unzip with gzip -d	
 
-#rule liftOver_mirbase21_dm3gff_todm6:
-#	input:
-#		dme3bed	='Liftover_files/mirbasedme3.bed',
-#		chainfile = 'Liftover_files/dm3ToDm6.over.chain'
-#	output:
-#		newFile = 'Liftover_files/mirbase21_dm6.bed',
-#		unMapped ='Liftover_files/liftover_unmapped',
-#		
-#	shell:"""
-#	liftOver {input.dme3bed} {input.chainfile} {output.newFile} {output.unMapped}
-#	"""
 	
 rule modified_bed_to_fasta:
 #only for RM
