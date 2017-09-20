@@ -10,8 +10,10 @@ rule all:
         'dm6.17_flybase_FTcounts.txt',
         expand('dm6.17_flybase_FT_{FT}.gff', FT=FT_list),
         expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.PTID', FT=PT_list),
+        expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.geneID', FT=Exon_PT_list),
         expand('transcript_PT_identifiers/dm6.17_flybase_FT_{PT}.gff.PTID_FT_exon', PT=Exon_PT_list),
-        'dm6.17_flybase_FT_exon_PTID.gff'
+        'dm6.17_flybase_FT_exon_PTID.gff',
+        expand('transcript_PT_identifiers/dm6.17_flybase_FT_gene_GeneType_{GT}.gff', GT=Exon_PT_list)
 
 rule extract_flybase:
     input:
@@ -50,21 +52,31 @@ rule split_by_FT:
             FT_gff = gff.loc[gff[2] == feature]
             FT_gff.to_csv("dm6.17_flybase_FT_" + str(feature) + ".gff", sep='\t',header=None, index=False)
 
-rule extract_transcript_PT_ID:
+rule extract_transcript_gene_ID:
     input:
-        in_gff = expand('dm6.17_flybase_FT_{FT}.gff', FT=PT_list)
+        in_gff = expand('dm6.17_flybase_FT_{FT}.gff', FT=PT_list),
+        in_gene_gff = expand('dm6.17_flybase_FT_{FT}.gff', FT=Exon_PT_list)
     output:
-        out_ID = expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.PTID', FT=PT_list)
+        out_ID = expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.PTID', FT=PT_list),
+        out_gene_ID = expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.geneID', FT=Exon_PT_list)
     run:
         import pandas as pd
         shell("mkdir -p 'transcript_PT_identifiers'")
 
         for gff in input.in_gff:
             gffdata = pd.read_csv(gff,sep='\t', header=None, index_col=None)
-            split_IDfield = (gffdata[8].str.split(';',expand=True))[0]
-            ID = (split_IDfield.str.split('=',expand=True))[1]
-            ID.to_csv(os.path.join('transcript_PT_identifiers/', gff + '.PTID'),sep='\t', header=None, index=False)
+            split_PTID_field = (gffdata[8].str.split(';',expand=True))[0]
+            split_geneID_field = (gffdata[8].str.split(';',expand=True))[2]
+            PTID = (split_PTID_field.str.split('=',expand=True))[1]
+            geneID = (split_geneID_field.str.split('=',expand=True))[1]
+            geneID = geneID.drop_duplicates()
+            geneID = 'ID=' + geneID
+            PTID.to_csv(os.path.join('transcript_PT_identifiers/', gff + '.PTID'),sep='\t', header=None, index=False)
+            geneID.to_csv(os.path.join('transcript_PT_identifiers/', gff + '.geneID'),sep='\t', header=None, index=False)
 
+#Note, for .geneID, transposableelement.gff and gene.gff are junk and therefore not in Exon_PT_list
+#Note, problem for snoRNA.geneID? We are short of 1? Ok, nvm i think we ignore this problem first,
+#fix it later.
 rule define_exon_PT:
     input:
         in_ID = expand('transcript_PT_identifiers/dm6.17_flybase_FT_{PT}.gff.PTID', PT=Exon_PT_list),
@@ -85,17 +97,16 @@ rule define_exon_PT:
                     print (feature)
 
 
-rule rename_exon_files_todataframe:
+rule label_exon_files_with_PT_and_convert_to_bed:
     input:
         in_gff= expand('transcript_PT_identifiers/dm6.17_flybase_FT_{PT}.gff.PTID_FT_exon', PT=Exon_PT_list)
     output:
-        out_gff= 'dm6.17_flybase_FT_exon_PTID.gff'
-
+        out_gff= 'dm6.17_flybase_FT_exon_PTID.gff',
+        #out_bed= 'dm6.17_flybase_FT_exon_PTID.bed'
     run:
         import pandas as pd
         counter = 0
         df = pd.DataFrame()
-
         for gff in input.in_gff:
             currentPT = Exon_PT_list[counter]
             gffdata = pd.read_csv(gff,sep='\s+',header=None, index_col=None)
@@ -105,12 +116,58 @@ rule rename_exon_files_todataframe:
             counter += 1
         df.to_csv('dm6.17_flybase_FT_exon_PTID.gff',sep='\t', header=None, index=False)
 
+#Note, we should also simultanously convert to .bed here
+
+
+rule label_gene_with_Genetype:
+    input:
+        in_ID = expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.geneID', FT=Exon_PT_list),
+        in_gff = 'dm6.17_flybase_FT_gene.gff'
+    output:
+        out_gff = expand('transcript_PT_identifiers/dm6.17_flybase_FT_gene_GeneType_{GT}.gff', GT=Exon_PT_list)
+    run:
+        import pandas as pd
+        counter = 0
+        gff = [line.rstrip('\n') for line in open(input.in_gff)]
+
+        for in_file in input.in_ID:
+            current_GeneType = Exon_PT_list[counter]
+            ID_list = [line.rstrip('\n') for line in open(in_file)]
+            out_file = open(os.path.join('transcript_PT_identifiers/','dm6.17_flybase_FT_gene_GeneType_' + current_GeneType + '.gff'),"w")
+            counter += 1
+            for ID in ID_list:
+                for entry in gff:
+                    if ID in entry:
+                        entry = entry + ";GeneType=" + current_GeneType
+                        out_file.write(entry + '\n')
+
+#  sanity check at this point seems good
+
+#rule collapse_Genetypes_convert_to_bed:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 #for each exon PT, eg, mRNA, go to the FT gff, split ID field to obtain parent_gene_ID,
 #collapse duplicates, then at this point, we have for each possible exon_PT, the list
-#of gene IDS for each parenttype.
+#of gene IDS for each parenttype -> k done.
 
 #next, input = dm6.17_flybase_FT_gene.gff. For each gene ID list, we iterate through
 #input, for example, if geneID in {PT} ==  input.split(';')[0], add "Genetype={PT}".
