@@ -17,10 +17,7 @@ for file in os.listdir(os.path.join(os.getcwd(),"modified_bed")):
 
 fasta_folder='modified_bed/fasta'
 fasta_file_path = []
-
-for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
-	if file.endswith(".fa"):
-		fasta_file_path.append(os.path.join(fasta_folder,file))	
+	
 #tab or space matters
 rule all:
     input:
@@ -31,6 +28,8 @@ rule all:
         'modified_bed/RNAonlyRM.bed',
         'modified_bed/pri_miRNA_mirbase21_dm6.bed',
         expand('modified_bed/fasta/{genetype}.fa', genetype=Modified_bed_files),
+        'modified_bed/RNAoRM.bed',
+        'modified_bed/fasta/Index0.fa',
         'modified_bed/fasta/bt_indexes',
         'modified_bed/fasta/pri_miRNA.fa'
 
@@ -149,9 +148,22 @@ rule modified_bed_to_fasta:
 	"""
 #do we want the individual fasta entry to be named?
 
-##rule to rename Indexes into numbers
+rule make_RNARM_bed:
+	output: 'modified_bed/RNAoRM.bed'
+	shell:'''
+	rm modified_bed/RNARM.bed
+	mv modified_bed/RNAonlyRM.bed {output}
+	rm modified_bed/tRNARM.bed
+	'''
 
-#Index_num to change
+rule move_other_fastas:
+	input:
+		genome = 'Index0.fa'
+	output:
+		'modified_bed/fasta/Index0.fa'
+	shell:'''
+	cp {input.genome} {output}
+	'''
 
 rule make_bt_indexes:
 	input:
@@ -162,8 +174,12 @@ rule make_bt_indexes:
 		import os
 		if os.path.isfile('modified_bed/fasta/bt_indexes') != True:
 			os.mkdir('modified_bed/fasta/bt_indexes')
+		for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
+			if file.endswith(".fa"):
+				fasta_file_path.append(os.path.join(fasta_folder,file))
 		fasta_file=fasta_file_path
 		Fasta_folder=fasta_folder
+		rename_dict={'Index0.fa':'Index0','rRNA.fa':'Index1','RNAo.fa':'Index4','pri_miRNA.fa':'Index8','LTR.fa':'Index10','LINE.fa':'Index11','DNA.fa':'Index12','Satellite.fa':'Index13','Low_complexity.fa':'Index14','RC.fa':'Index15','Simple_repeat.fa':'Index16','Other.fa':'Index17','Unknown.fa':'Index18','ARTEFACT.fa':'Index20'}
 		for file in fasta_file:
-			prefix=os.path.join('modified_bed/fasta/bt_indexes',file[(len(Fasta_folder)+1):-3])
+			prefix=os.path.join('modified_bed/fasta/bt_indexes',rename_dict[file[(len(Fasta_folder)+1):]])
 			shell('bowtie-build {file} {prefix}')
