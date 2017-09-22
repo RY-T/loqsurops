@@ -1,13 +1,15 @@
 #from genome index align lib
 
-#snakemake --dag | dot -Tsvg > dag.svg
+#snakemake -s snakefile_part_2 --dag | dot -Tsvg > dag2.svg
 import os
 lib_list=[]
 bt_prefix_list=[]
 
 
 rule all:
-	input:'Seq_map_directory'		
+	input:
+		'Seq_map_directory',
+		'All_map_directory/test.txt'		
 
 rule sequential_mapping:
 	output: 'Seq_map_directory'
@@ -35,3 +37,31 @@ rule sequential_mapping:
 				else:
 					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t modified_bed/fasta/bt_indexes/{Index} Seq_map_directory/{LIB}_unmapped_{Previously_unmapped}.fasta > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
 
+rule all_index_mapping:
+	output: 
+		test_text='All_map_directory/test.txt'
+	run:
+		import os
+		from pathlib import Path
+		fasta_folder='modified_bed/fasta/bt_indexes'
+		out_dir=Path('All_map_directory')
+		out_text_file=open(output.test_text,"w")
+		if out_dir.is_dir() != True:
+			os.mkdir('All_map_directory')
+		RNA_Lib_fastq_folder='RNA_LIB'
+		lib_list=[]
+		for file in os.listdir(os.path.join(os.getcwd(),RNA_Lib_fastq_folder)):
+			if file.endswith(".fastq"):
+				lib_list.append(file[:-6])
+		bt_prefix_list=[]
+		for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
+			if file.endswith(".rev.1.ebwt"):
+				bt_prefix_list.append(file[:-11])
+		for j in range(len(lib_list)):
+			LIB=lib_list[j]
+			short_reads=os.path.join(RNA_Lib_fastq_folder,'02preprocessouput/'+LIB+'_final_col_filter.fasta')
+			for i in range(len(bt_prefix_list)):
+				Index=bt_prefix_list[i]
+				shell('bowtie -f --un All_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t modified_bed/fasta/bt_indexes/{Index} {short_reads} > All_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+				out_text_file.write(bt_prefix_list[i])
+		out_text_file.close()				

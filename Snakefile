@@ -11,11 +11,7 @@ Flybase_GENETYPES2=['rRNA', 'tRNA', 'snRNA', 'snoRNA']
 #requires installation
 RepeatMasker_Dir='/usr/local/RepeatMasker/RepeatMasker'
 Modified_bed_files=[]
-for file in os.listdir(os.path.join(os.getcwd(),"modified_bed")):
-	if file.endswith("RM.bed"):
-		Modified_bed_files.append(file[:-6])
 
-fasta_folder='modified_bed/fasta'
 fasta_file_path = []
 	
 #tab or space matters
@@ -23,15 +19,17 @@ rule all:
     input:
         'Index0.fa',
         'RM_output',
+        'modified_bed',
         'modified_bed/RM_output.bed',
         expand('modified_bed/{RM_Genetype}RM.bed', RM_Genetype=RM_GENETYPES),
         'modified_bed/RNAonlyRM.bed',
         'modified_bed/pri_miRNA_mirbase21_dm6.bed',
-        expand('modified_bed/fasta/{genetype}.fa', genetype=Modified_bed_files),
-        'modified_bed/RNAoRM.bed',
+        'modified_bed/fasta',
+#        expand('modified_bed/fasta/{genetype}.fa', genetype=Modified_bed_files),
         'modified_bed/fasta/Index0.fa',
         'modified_bed/fasta/bt_indexes',
         'modified_bed/fasta/pri_miRNA.fa'
+
 
 rule extract_impt_chr:
     input:
@@ -69,10 +67,11 @@ rule extract_bed_from_RMout:
 	input:
 		'RM_output/Index0.fa.out' 
 	output:
-		'modified_bed/RM_output.bed'
+		out_dir ='modified_bed',
+		bedfiles='modified_bed/RM_output.bed'
 	shell: """
-	mkdir -p 'modified_bed'
-	awk -f ./RMout2bed.awk {input} > {output}
+	mkdir -p {output.out_dir}
+	awk -f ./RMout2bed.awk {input} > {output.bedfiles}
 	"""
 
 rule pandas_search_from_modified_bed_part1:
@@ -83,15 +82,16 @@ rule pandas_search_from_modified_bed_part1:
 	run:
 		import pandas as pd
 		import os
-
 		everything = pd.read_csv(input.bedfile ,sep="\t+",header=None)
 		RM_Genetype	=['LTR','LINE','DNA','Satellite','Low_complexity','RC','Simple_repeat','Other','Unknown','ARTEFACT','RNA','rRNA','tRNA']
 		for genetype in RM_Genetype:
 			out_dir = "modified_bed/"
 			out_file = genetype +"RM.bed"
-			something = everything[everything.iloc[:,3].str.contains(genetype+'/')]
+			something = everything[everything.iloc[:,3].str.contains(genetype)]
 			something.to_csv(os.path.join(out_dir, out_file),sep='\t',index=False)
-	
+		
+#might cause a bug
+
 rule pandas_search_from_modified_bed_part2:
 	input:
 		bedfile = 'modified_bed/RNARM.bed'
@@ -140,15 +140,25 @@ rule modified_bed_to_fasta:
 		genome = 'Index0.fa'
 
 	output:
-		'modified_bed/fasta/{genetype}.fa'
-
-	shell:"""
-	mkdir -p 'modified_bed/fasta'
-	bedtools getfasta -fi {input.genome} -bed 'modified_bed/{wildcards.genetype}RM.bed' -fo {output}
-	"""
+		'modified_bed/fasta'
+	run:
+		import os
+		from pathlib import Path
+		out_dir=Path('modified_bed/fasta')
+		if out_dir.is_dir() != True:
+			os.mkdir('modified_bed/fasta')
+		for file in os.listdir(os.path.join(os.getcwd(),"modified_bed")):
+			if file.endswith("RM.bed"):
+				Modified_bed_files.append(file)
+		for i in range(len(Modified_bed_files)):
+			bed_file=os.path.join('modified_bed/',Modified_bed_files[i])
+			out_file=os.path.join('modified_bed/fasta',Modified_bed_files[i][:-6]+'.fa')
+			shell('bedtools getfasta -name -fi {input.genome} -bed {bed_file} -fo {out_file}')
+	
+	
 #do we want the individual fasta entry to be named?
-
-rule make_RNARM_bed:
+#make modified_bed
+rule remove_files:
 	output: 'modified_bed/RNAoRM.bed'
 	shell:'''
 	rm modified_bed/RNARM.bed
@@ -174,12 +184,15 @@ rule make_bt_indexes:
 		import os
 		if os.path.isfile('modified_bed/fasta/bt_indexes') != True:
 			os.mkdir('modified_bed/fasta/bt_indexes')
+		fasta_folder='modified_bed/fasta'
+		fasta_file_path=[]
 		for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
 			if file.endswith(".fa"):
 				fasta_file_path.append(os.path.join(fasta_folder,file))
-		fasta_file=fasta_file_path
-		Fasta_folder=fasta_folder
-		rename_dict={'Index0.fa':'Index0','rRNA.fa':'Index1','RNAo.fa':'Index4','pri_miRNA.fa':'Index8','LTR.fa':'Index10','LINE.fa':'Index11','DNA.fa':'Index12','Satellite.fa':'Index13','Low_complexity.fa':'Index14','RC.fa':'Index15','Simple_repeat.fa':'Index16','Other.fa':'Index17','Unknown.fa':'Index18','ARTEFACT.fa':'Index20'}
-		for file in fasta_file:
-			prefix=os.path.join('modified_bed/fasta/bt_indexes',rename_dict[file[(len(Fasta_folder)+1):]])
-			shell('bowtie-build {file} {prefix}')
+		rename_dict={'Index0.fa':'Index0','rRNA.fa':'Index1','RNAonly.fa':'Index4','pri_miRNA.fa':'Index8','LTR.fa':'Index10','LINE.fa':'Index11','DNA.fa':'Index12','Satellite.fa':'Index13','Low_complexity.fa':'Index14','RC.fa':'Index15','Simple_repeat.fa':'Index16','Other.fa':'Index17','Unknown.fa':'Index18','ARTEFACT.fa':'Index20'}
+		for file in fasta_file_path:
+			if file[len(fasta_folder)+1:] not in rename_dict:
+				continue
+			else:
+				prefix=os.path.join('modified_bed/fasta/bt_indexes',rename_dict[file[(len(fasta_folder)+1):]])
+				shell('bowtie-build {file} {prefix}')
