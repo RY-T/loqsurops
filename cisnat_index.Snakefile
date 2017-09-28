@@ -4,25 +4,23 @@ PT_list= [line.rstrip('\n') for line in open('parent_type_list.txt')]
 Exon_PT_list= [line.rstrip('\n') for line in open('exon_parent_type_list.txt')]
 Strand =['plus', 'minus']
 Intersect_type=['exon','gene']
+Intersect_samples =['dm6.17_flybase_FT_exon_PTID.merge', 'dm6.17_flybase_FT_gene_GeneID' ]
 
 rule all:
     input:
-        'dm6.17_flybase.gff',
-        'dm6.17_flybase_FTcounts.txt',
+        'dm6.17_flybase.gff','dm6.17_flybase_FTcounts.txt',
         expand('dm6.17_flybase_FT_{FT}.gff', FT=FT_list),
         expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.PTID', FT=PT_list),
         expand('transcript_PT_identifiers/dm6.17_flybase_FT_{FT}.gff.geneID', FT=Exon_PT_list),
         expand('transcript_PT_identifiers/dm6.17_flybase_FT_{PT}.gff.PTID_FT_exon', PT=Exon_PT_list),
-        'dm6.17_flybase_FT_exon_PTID.gff',
-        'dm6.17_flybase_FT_exon_PTID.bed',
+        'dm6.17_flybase_FT_exon_PTID.gff','dm6.17_flybase_FT_exon_PTID.bed',
         expand('transcript_PT_identifiers/dm6.17_flybase_FT_gene_GeneType_{GT}.gff', GT=Exon_PT_list),
-        'dm6.17_flybase_FT_gene_GeneID.gff',
-        'dm6.17_flybase_FT_gene_GeneID.bed',
-        'dm6.17_flybase_FT_exon_PTID.merge.bed',
+        'dm6.17_flybase_FT_gene_GeneID.gff','dm6.17_flybase_FT_gene_GeneID.bed',
         'dm6.17_flybase_FT_exon_PTID.merge.bed',
         expand('dm6.17_flybase_FT_exon_PTID.merge.{strand}.bed', strand=Strand),
         expand('dm6.17_flybase_FT_gene_GeneID.{strand}.bed', strand=Strand),
-        expand('dm6.17_flybase_FT_{type}_intersect.bed' , type=Intersect_type)
+        expand('{sample}.intersect.bed' , sample=Intersect_samples),
+        expand('{sample}.intersect.ID.bed',sample=Intersect_samples),
 
 rule extract_flybase:
     input:
@@ -162,7 +160,7 @@ rule label_gene_with_Genetype:
             for ID in ID_list:
                 for entry in gff:
                     if ID in entry:
-                        entry = entry + ";GeneType=" + current_GeneType
+                        entry = entry + "\t" + "GeneType=" + current_GeneType
                         out_file.write(entry + '\n')
 
 #sanity check at this point seems good
@@ -172,23 +170,27 @@ rule combine_Genetypes_convert_to_bed:
     input:
         in_gff = expand('transcript_PT_identifiers/dm6.17_flybase_FT_gene_GeneType_{GT}.gff', GT=Exon_PT_list)
     output:
-        out_gff = 'dm6.17_flybase_FT_gene_GeneID.gff',
-        out_bed = 'dm6.17_flybase_FT_gene_GeneID.bed'
+        out_gff = 'dm6.17_flybase_FT_gene_GeneID.gff', out_bed = 'dm6.17_flybase_FT_gene_GeneID.bed'
     run:
         import pandas as pd
-        combine_gff = pd.DataFrame()
+        c_gff = pd.DataFrame()
 
         for gff in input.in_gff:
             gffdata = pd.read_csv(gff,sep='\t',header=None, index_col=None)
-            combine_gff = combine_gff.append(gffdata)
+            c_gff = c_gff.append(gffdata)
 
-        bed = combine_gff.loc[:, [0,3,4,8,5,6]]
-        bed[7] = bed[bed.columns[2]].astype(int) - bed[bed.columns[1]].astype(int)
-        bed[8] = bed[8].astype(str) + ";Genelength=" +  bed[7].astype(str)
-        finalbed = bed[bed.columns[:-1]]
+        field = (c_gff[8].str.split(';',expand=True))
+        ID = field[field.columns[0]]
+        Strand= ";GnStrand=" + c_gff[c_gff.columns[6]].astype(str)
+        Start = ";GnStart=" + c_gff[c_gff.columns[3]].astype(str)
+        Length = ";Genelength=" + (c_gff[c_gff.columns[4]].astype(int) - c_gff[c_gff.columns[3]].astype(int)).astype(str)
+        GeneType = ";" + c_gff[c_gff.columns[-1]].astype(str)
+        ID_field = ID.astype(str) + Strand.astype(str) + Start.astype(str) + Length.astype(str) + GeneType.astype(str)
+        bed = c_gff[[0,3,4,5,6]]
+        bed.insert(3, column = 'ID', value = ID_field)
 
-        combine_gffv
-        finalbed.to_csv('dm6.17_flybase_FT_gene_GeneID.bed',sep='\t', header=None, index=False)
+        c_gff.to_csv(output.out_gff,sep='\t', header=None, index=False)
+        bed.to_csv(output.out_bed,sep='\t', header=None, index=False)
 
 #As expected im 1 gene short in the snoRNA
 
@@ -233,25 +235,60 @@ rule extract_strand_for_exon_gene:
                 plus_features.to_csv('dm6.17_flybase_FT_gene_GeneID.plus.bed',sep='\t', header=None, index=False)
                 minus_features.to_csv('dm6.17_flybase_FT_gene_GeneID.minus.bed',sep='\t', header=None, index=False)
 
-rule intersect_within_gene_exon:
+rule intersect_within_gene_exon_remove_gene_duplicates:
     input:
-        #plus = "{sample}.plus.bed"
-        #minus = "{sample}.minus.bed"
-        #plus = expand("{sample}.plus.bed", sample=Intersect_samples)
-        #minus = expand("{sample}.minus.bed", sample=Intersect_samples)
-        #'dm6.17_flybase_FT_exon_PTID.merge.plus.bed', 'dm6.17_flybase_FT_gene_GeneID.plus.bed',
-        #'dm6.17_flybase_FT_exon_PTID.merge.minus.bed', 'dm6.17_flybase_FT_gene_GeneID.minus.bed'
+        plus = "{sample}.plus.bed",
+        minus = "{sample}.minus.bed"
+
     output:
-        intersect_bed_file = expand('dm6.17_flybase_FT_{type}_intersect.bed' , type=Intersect_type)
+        '{sample}.intersect.bed'
     run:
         import pandas as pd
-        shell("bedtools intersect -S -a plus -b minus > {output.intersect_bed_file}")
+        import os.path
+
+        shell("bedtools intersect -S -a {input.plus} -b {input.minus} -bed | \
+        sort-bed - > {output}")
+        #Note, here is how you coordinate your input files, and you dont need wildcards.
+        #however, you do need to expand a list of your output files in rule all though.
+        gene_bed = 'dm6.17_flybase_FT_gene_GeneID.intersect.bed'
+        if os.path.isfile(gene_bed):
+            intersect_data = pd.read_csv(gene_bed,sep='\t',header=None, index_col=None)
+            intersect_data = intersect_data.drop_duplicates()
+            intersect_data.to_csv(gene_bed,sep='\t', header=None, index=False)
+        else:
+            pass
+
+#nte, the resultant gene.intersect file has duplicate features why?
+#But the resultant exon file does not.
+#Oh my god, editing one file in the early chain -> changes everything dowstream
+#Note .columns is for single columns, while [[]] is for multiple columnds
+
+rule map_to_original_bed_for_intersect_ID:
+    input:
+        intersect = "{sample}.intersect.bed",
+        bed = "{sample}.bed"
+    output:
+        '{sample}.intersect.ID.bed'
+
+    shell:"""
+        bedtools map -c 4 -o collapse -a {input.intersect} -b {input.bed} | \
+        sort-bed - > {output}
+        """
+
+#Initial to do list for tmr:
+#First thing, reformat the original exon file to include additional details.
+#Next, re-rerun the exon part, to see if everything changes after that part.
+#Then address the unsorted geneID issue.
+#Sort order was unspecified, and file dm6.17_flybase_FT_gene_GeneID.bed is not sorted lexicographically.
 
 
 
 
 
-#Note, we cant use wildcards here i think. 
+
+
+
+
 
 
 
@@ -288,13 +325,3 @@ rule intersect_within_gene_exon:
 
 
 #Note, dm6.17_flybase_FT_gene.gff.PTID, contains all the gene IDS? Yup i think so
-
-
-
-
-
-
-
-#FBgn0259817
-#FBti0059812
-#db = gffutils.FeatureDB('dm6flybase.db', keep_order=True)
