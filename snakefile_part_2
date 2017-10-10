@@ -1,6 +1,10 @@
 #from genome index align lib
 
 #snakemake -s snakefile_part_2 --dag | dot -Tsvg > dag2.svg
+#LOGS=Logs_out
+#snakemake -s snakefile_part_2 --jobname '$FOLDER/s.{rulename}.{jobid}' --stats $LOGS/snakemake.txt >& $LOGS/snakemake.log
+
+
 import os
 lib_list=[]
 bt_prefix_list=[]
@@ -8,20 +12,26 @@ bt_prefix_list=[]
 
 rule all:
 	input:
-		'Seq_map_directory',
+		'Seq_map_directory/test.txt',
 		'All_map_directory/test.txt'		
 
 rule sequential_mapping:
-	output: 'Seq_map_directory'
+	output: 
+		test_text='Seq_map_directory/test.txt'
 	run:
 		import os
-		os.mkdir('Seq_map_directory')
+		from pathlib import Path
+		out_dir=Path('Seq_map_directory')
+		if out_dir.is_dir() != True:
+			os.mkdir('Seq_map_directory')
+		out_text_file=open(output.test_text,"a")
 		fasta_folder='modified_bed/fasta/bt_indexes'
 		for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
 			if file.endswith(".rev.1.ebwt"):
 				bt_prefix_list.append(file[:-11]) 
-		bt_prefix_list.sort()
-#needs better sort function key=fn
+		def sort_index(elem):
+			return int(elem[5:])
+		bt_prefix_list.sort(key=sort_index)
 		RNA_Lib_fastq_folder='RNA_LIB'
 		for file in os.listdir(os.path.join(os.getcwd(),RNA_Lib_fastq_folder)):
 			if file.endswith(".fastq"):
@@ -33,9 +43,16 @@ rule sequential_mapping:
 				Index=bt_prefix_list[i]
 				Previously_unmapped=bt_prefix_list[i-1]
 				if i ==0:
+					continue
+				elif i ==1:
+#					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t dm5/dm3/dm3 {short_reads} > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
 					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t modified_bed/fasta/bt_indexes/{Index} {short_reads} > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+					out_text_file.write("%r\n" %bt_prefix_list[i])
 				else:
 					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t modified_bed/fasta/bt_indexes/{Index} Seq_map_directory/{LIB}_unmapped_{Previously_unmapped}.fasta > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+					out_text_file.write("%r\n" %bt_prefix_list[i])
+		out_text_file.close()
+#-a option causes multiple mapping
 
 rule all_index_mapping:
 	output: 
@@ -45,7 +62,7 @@ rule all_index_mapping:
 		from pathlib import Path
 		fasta_folder='modified_bed/fasta/bt_indexes'
 		out_dir=Path('All_map_directory')
-		out_text_file=open(output.test_text,"w")
+		out_text_file=open(output.test_text,"a")
 		if out_dir.is_dir() != True:
 			os.mkdir('All_map_directory')
 		RNA_Lib_fastq_folder='RNA_LIB'
@@ -63,5 +80,5 @@ rule all_index_mapping:
 			for i in range(len(bt_prefix_list)):
 				Index=bt_prefix_list[i]
 				shell('bowtie -f --un All_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t modified_bed/fasta/bt_indexes/{Index} {short_reads} > All_map_directory/{LIB}_mapped{Index}.bowtie.txt')
-				out_text_file.write(bt_prefix_list[i])
+				out_text_file.write('\n'+bt_prefix_list[i])
 		out_text_file.close()				

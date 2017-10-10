@@ -3,6 +3,9 @@
 #add comments
 
 #snakemake --dag | dot -Tsvg > dag.svg
+#LOGS=Logs_out
+#snakemake -s snakefile_part_2 --jobname '$FOLDER/s.{rulename}.{jobid}' --stats $LOGS/snakemake.txt >& $LOGS/snakemake.log
+
 import os
  
 CHR_LIST= [line.rstrip('\n') for line in open('Chr_list.txt')]
@@ -19,16 +22,16 @@ rule all:
     input:
         'Index0.fa',
         'RM_output',
-        'modified_bed',
         'modified_bed/RM_output.bed',
         expand('modified_bed/{RM_Genetype}RM.bed', RM_Genetype=RM_GENETYPES),
         'modified_bed/RNAonlyRM.bed',
         'modified_bed/pri_miRNA_mirbase21_dm6.bed',
-        'modified_bed/fasta',
-#        expand('modified_bed/fasta/{genetype}.fa', genetype=Modified_bed_files),
+        'modified_bed/fasta/test.txt',
+        'modified_bed/fasta/test2.txt',
         'modified_bed/fasta/Index0.fa',
-        'modified_bed/fasta/bt_indexes',
-        'modified_bed/fasta/pri_miRNA.fa'
+        'modified_bed/fasta/pri_miRNA.fa',
+        'modified_bed/fasta/flybasehpRNA.fa',
+        'modified_bed/fasta/bt_indexes/test.txt'
 
 
 rule extract_impt_chr:
@@ -133,6 +136,40 @@ rule liftover_mirbase21_to_dm6bed:
 
 #install UCSC liftover, get chainfile from flybase, unzip with gzip -d	
 
+#rule copy_bed_files from jinwee:
+#	input:
+#		source='cis_nat_snakefile_package/merged_bedfiles'
+#	output:
+#		outfile='modified_bed'
+#	shell:"""
+#	cp {input.source}/*merge.bed {output.outfile}
+#	"""
+
+rule merge_bed_to_fasta:
+#only for GFF from jinwee
+	input:
+		genome = 'Index0.fa'
+
+	output:
+		test_text='modified_bed/fasta/test2.txt'
+	run:
+		import os
+		from pathlib import Path
+		Merge_bed=[]
+		out_text_file=open(output.test_text,"w")
+		out_dir=Path('modified_bed/fasta')
+		if out_dir.is_dir() != True:
+			os.mkdir('modified_bed/fasta')
+		for file in os.listdir(os.path.join(os.getcwd(),"modified_bed")):
+			if file.endswith("merge.bed"):
+				Merge_bed.append(file)
+		for i in range(len(Merge_bed)):
+			bed_file=os.path.join('modified_bed/',Merge_bed[i])
+			out_file=os.path.join('modified_bed/fasta',Merge_bed[i][18:-10]+'.fa')
+			shell('''awk -f ./RemoveChr.awk {bed_file} > {bed_file}.nochr 
+				bedtools getfasta -name -fi {input.genome} -bed {bed_file}.nochr -fo {out_file}''')
+			out_text_file.write(Merge_bed[i]+'\n')
+		out_text_file.close()
 	
 rule modified_bed_to_fasta:
 #only for RM
@@ -140,10 +177,11 @@ rule modified_bed_to_fasta:
 		genome = 'Index0.fa'
 
 	output:
-		'modified_bed/fasta'
+		test_text='modified_bed/fasta/test.txt'
 	run:
 		import os
 		from pathlib import Path
+		out_text_file=open(output.test_text,"w")
 		out_dir=Path('modified_bed/fasta')
 		if out_dir.is_dir() != True:
 			os.mkdir('modified_bed/fasta')
@@ -154,6 +192,8 @@ rule modified_bed_to_fasta:
 			bed_file=os.path.join('modified_bed/',Modified_bed_files[i])
 			out_file=os.path.join('modified_bed/fasta',Modified_bed_files[i][:-6]+'.fa')
 			shell('bedtools getfasta -name -fi {input.genome} -bed {bed_file} -fo {out_file}')
+			out_text_file.write(Modified_bed_files[i]+'\n')
+		out_text_file.close()
 	
 	
 #do we want the individual fasta entry to be named?
@@ -175,24 +215,44 @@ rule move_other_fastas:
 	cp {input.genome} {output}
 	'''
 
+rule hairpin_fa:
+	input:
+		genome = 'Index0.fa',
+		main='cis_nat_snakefile_package/dm6.17_flybase.gff'
+	output:
+		bed_file_temp='modified_bed/flybasehpRNA.bed.temp',
+		bed_file_temp_2='modified_bed/flybasehpRNA.bed.2.temp',
+		bed_file='modified_bed/flybasehpRNA.bed',
+		fasta_file='modified_bed/fasta/flybasehpRNA.fa'
+	params:
+		grep='Name=hpRNA'
+
+	shell:'''
+	grep {params.grep} {input.main} > {output.bed_file_temp}
+	awk -f ./gff_to_bed_hpRNA.awk {output.bed_file_temp} > {output.bed_file_temp_2}
+	awk -f ./RemoveChr.awk {output.bed_file_temp_2} > {output.bed_file}
+	bedtools getfasta -name -fi {input.genome} -bed {output.bed_file} -fo {output.fasta_file}
+	'''
+
 rule make_bt_indexes:
 	input:
 		fasta_file=expand(fasta_file_path)
 	output:
-		'modified_bed/fasta/bt_indexes'
+		test_text='modified_bed/fasta/bt_indexes/test.txt'
 	run:
 		import os
-		if os.path.isfile('modified_bed/fasta/bt_indexes') != True:
-			os.mkdir('modified_bed/fasta/bt_indexes')
+		out_text_file=open(output.test_text,"w")
 		fasta_folder='modified_bed/fasta'
 		fasta_file_path=[]
 		for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
 			if file.endswith(".fa"):
 				fasta_file_path.append(os.path.join(fasta_folder,file))
-		rename_dict={'Index0.fa':'Index0','rRNA.fa':'Index1','RNAonly.fa':'Index4','pri_miRNA.fa':'Index8','LTR.fa':'Index10','LINE.fa':'Index11','DNA.fa':'Index12','Satellite.fa':'Index13','Low_complexity.fa':'Index14','RC.fa':'Index15','Simple_repeat.fa':'Index16','Other.fa':'Index17','Unknown.fa':'Index18','ARTEFACT.fa':'Index20'}
+		rename_dict={'Index0.fa':'Index0','rRNA.fa':'Index1','exon_PT_rRNA.fa':'Index2','RNAonly.fa':'Index4','exon_PT_tRNA.fa':'Index5','exon_PT_snRNA.fa':'Index6','exon_PT_snoRNA.fa':'Index7','pri_miRNA.fa':'Index8','flybasehpRNA.fa':'Index9','LTR.fa':'Index10','LINE.fa':'Index11','DNA.fa':'Index12','Satellite.fa':'Index13','Low_complexity.fa':'Index14','RC.fa':'Index15','Simple_repeat.fa':'Index16','Other.fa':'Index17','Unknown.fa':'Index18','transposable_element.fa':'Index19','ARTEFACT.fa':'Index20'}
 		for file in fasta_file_path:
 			if file[len(fasta_folder)+1:] not in rename_dict:
 				continue
 			else:
 				prefix=os.path.join('modified_bed/fasta/bt_indexes',rename_dict[file[(len(fasta_folder)+1):]])
 				shell('bowtie-build {file} {prefix}')
+				out_text_file.write(file+'\n')
+		out_text_file.close()
