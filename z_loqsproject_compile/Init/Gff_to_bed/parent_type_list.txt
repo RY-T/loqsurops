@@ -1,0 +1,10 @@
+gene
+mRNA
+pre_miRNA
+snoRNA
+transposable_element
+ncRNA
+pseudogene
+tRNA
+rRNA
+snRNA

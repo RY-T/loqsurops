@@ -1,0 +1,144 @@
+#from genome index align lib
+
+#snakemake -s snakefile_part_2 --dag | dot -Tsvg > seq_mapping.svg
+#LOGS=Logs_out
+#snakemake -s snakefile_part_2 --jobname '$FOLDER/s.{rulename}.{jobid}' --stats $LOGS/snakemake.txt >& $LOGS/snakemake.log
+
+rule all:
+	input:
+		'Seq_map_directory/test.txt',
+		'All_map_directory/test.txt',
+		'Seq_map_directory/count.txt',
+		'All_map_directory/count.txt'		
+
+rule sequential_mapping:
+	output: 
+		test_text='Seq_map_directory/test.txt'
+	run:
+		import os
+		from pathlib import Path
+		lib_list=[]
+		bt_prefix_list=[]
+		out_dir=Path('Seq_map_directory')
+		if out_dir.is_dir() != True:
+			os.mkdir('Seq_map_directory')
+		out_text_file=open(output.test_text,"a")
+		bt_index_folder='Index_gen/Repeat_Masker/modified_bed/fasta/bt_indexes/'
+		for file in os.listdir(os.path.join(os.getcwd(),bt_index_folder)):
+			if file.endswith(".rev.1.ebwt"):
+				bt_prefix_list.append(file[:-11]) 
+		def sort_index(elem):
+			return int(elem[5:])
+		bt_prefix_list.sort(key=sort_index)
+		RNA_Lib_fastq_folder='Preprocessing/'
+		for file in os.listdir(os.path.join(os.getcwd(),RNA_Lib_fastq_folder,'02preprocessouput/')):
+			if file.endswith(".fasta"):
+				lib_list.append(file[:-23]) 
+		for j in range(len(lib_list)):
+			LIB=lib_list[j]
+			short_reads=os.path.join(RNA_Lib_fastq_folder,'02preprocessouput/'+LIB+'_final_col_filter.fasta')
+			for i in range(len(bt_prefix_list)):
+				Index=bt_prefix_list[i]
+				Previously_unmapped=bt_prefix_list[i-1]
+				if i ==0:
+					continue
+				elif i ==1:
+#					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -a -v 0 -p 1 -t dm5/dm3/dm3 {short_reads} > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -v 0 -p 1 -t {bt_index_folder}/{Index} {short_reads} > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+					out_text_file.write("%r\n" %bt_prefix_list[i])
+				else:
+					shell('bowtie -f --un Seq_map_directory/{LIB}_unmapped_{Index}.fasta -v 0 -p 1 -t {bt_index_folder}/{Index} Seq_map_directory/{LIB}_unmapped_{Previously_unmapped}.fasta > Seq_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+					out_text_file.write("%r\n" %bt_prefix_list[i])
+		out_text_file.close()
+#-a option causes multiple mapping
+
+rule all_index_mapping:
+	output: 
+		test_text='All_map_directory/test.txt'
+	run:
+		import os
+		from pathlib import Path
+		lib_list=[]
+		bt_prefix_list=[]
+		bt_index_folder='Index_gen/Repeat_Masker/modified_bed/fasta/bt_indexes/'
+		out_dir=Path('All_map_directory')
+		out_text_file=open(output.test_text,"a")
+		if out_dir.is_dir() != True:
+			os.mkdir('All_map_directory')
+		RNA_Lib_fastq_folder='Preprocessing/'
+		lib_list=[]
+		for file in os.listdir(os.path.join(os.getcwd(),RNA_Lib_fastq_folder,'02preprocessouput/')):
+			if file.endswith(".fasta"):
+				lib_list.append(file[:-23])
+		bt_prefix_list=[]
+		def sort_index(elem):
+			return int(elem[5:])
+		bt_prefix_list.sort(key=sort_index)
+		for file in os.listdir(os.path.join(os.getcwd(),bt_index_folder)):
+			if file.endswith(".rev.1.ebwt"):
+				bt_prefix_list.append(file[:-11])
+		for j in range(len(lib_list)):
+			LIB=lib_list[j]
+			short_reads=os.path.join(RNA_Lib_fastq_folder,'02preprocessouput/'+LIB+'_final_col_filter.fasta')
+			for i in range(len(bt_prefix_list)):
+				Index=bt_prefix_list[i]
+				shell('bowtie -f --un All_map_directory/{LIB}_unmapped_{Index}.fasta -v 0 -p 1 -t {bt_index_folder}/{Index} {short_reads} > All_map_directory/{LIB}_mapped{Index}.bowtie.txt')
+				out_text_file.write('\n'+bt_prefix_list[i])
+		out_text_file.close()
+
+rule count_by_lib:
+	output: 
+		count_text='Seq_map_directory/count.txt'
+	run:
+		import os
+		import pandas as pd
+		Full_list=[]
+		Seq_folder='Seq_map_directory'
+		for file in os.listdir(os.path.join(os.getcwd(),Seq_folder)):
+			if file.endswith(".bowtie.txt"):
+				Full_list.append(file)
+
+		out_text_file=open(output.count_text,"a")
+		for i in Full_list:	
+			if os.path.getsize(os.path.join(Seq_folder,i))<=0:
+				continue
+			else:
+				everything = pd.read_csv(os.path.join(Seq_folder,i),sep="\t+",header=None)
+				def count_one(x):
+					return int(x.split("_",3)[2])
+				def sum_all(everything):
+					counter=0
+					for i in range(len(everything)):
+						counter+=count_one(everything[0][i])
+					return counter
+				out_text_file.write('\n'+i+'\t'+str(sum_all(everything)))
+		out_text_file.close()	
+
+
+rule count_by_lib_all_map:
+	output: 
+		count_text='All_map_directory/count.txt'
+	run:
+		import os
+		import pandas as pd
+		Full_list=[]
+		Seq_folder='All_map_directory'
+		for file in os.listdir(os.path.join(os.getcwd(),Seq_folder)):
+			if file.endswith(".bowtie.txt"):
+				Full_list.append(file)
+
+		out_text_file=open(output.count_text,"a")
+		for i in Full_list:	
+			if os.path.getsize(os.path.join(Seq_folder,i))<=0:
+				continue
+			else:
+				everything = pd.read_csv(os.path.join(Seq_folder,i),sep="\t+",header=None)
+				def count_one(x):
+					return int(x.split("_",3)[2])
+				def sum_all(everything):
+					counter=0
+					for i in range(len(everything)):
+						counter+=count_one(everything[0][i])
+					return counter
+				out_text_file.write('\n'+i+'\t'+str(sum_all(everything)))
+		out_text_file.close()

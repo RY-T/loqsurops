@@ -1,0 +1,14 @@
+gene
+mRNA
+three_prime_UTR
+five_prime_UTR
+exon
+intron
+pre_miRNA
+snoRNA
+transposable_element
+ncRNA
+pseudogene
+tRNA
+rRNA
+snRNA

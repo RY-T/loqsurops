@@ -1,0 +1,8 @@
+mRNA
+pre_miRNA
+snoRNA
+ncRNA
+pseudogene
+tRNA
+rRNA
+snRNA

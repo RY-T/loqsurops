@@ -1,0 +1,126 @@
+#snakemake -s ry_edit_preprocessing_02.Snakefile --dag | dot -Tsvg > preprocessing_fastq_to_input.svg
+import pandas as pd
+#Env list: loqsproject  panda_env  snake_tutorial
+
+#run_list = pd.read_csv('temp_runlist.txt',sep='\t', header=None,index_col=None)
+#lib_list = run_list[0]
+
+import os
+#lib_list=['B133','B134','B135','B136','B137','B138','B139','B140','B141','B142','B143','B144','B145']
+lib_list=[]
+fasta_folder=os.path.dirname('Input_files/small_RNA_libs/')
+for file in os.listdir(os.path.join(os.getcwd(),fasta_folder)):
+	if file.endswith(".fastq"):
+		lib_list.append(file[:-6]) 
+
+from pathlib import Path
+RNA_LIB=Path('Preprocessing')
+if RNA_LIB.is_dir() != True:
+	os.mkdir('Preprocessing')
+
+adapter = 'TGGAATTCTCGGGTGCCAAGG'
+qualscore = 'Q33'
+min_length = 18
+max_length = 30
+
+rule all:
+	input:
+		expand('Preprocessing/02preprocessouput/{LIB}_final_col_filter.fasta', LIB=lib_list)
+
+#find some way to patch relative path
+rule clip_convert_to_fasta_and_identifiers:
+	input:
+		'Input_files/small_RNA_libs/{LIB}.fastq'
+	output:
+		'Preprocessing/{LIB}clip.fasta'
+	shell:"""
+		fastx_clipper -a {adapter} -c -v -i {input} |
+		fastq_to_fasta -v -r | sed "s/^>/>{wildcards.LIB}_/" > {output}
+		"""
+
+rule collapsing_repeats:
+	input:
+		'Preprocessing/{LIB}clip.fasta'
+	output:
+		'Preprocessing/{LIB}clipcolid_unlabeled.fasta'
+	shell:"""
+		fastx_collapser -v -i {input} -o {output}
+		rm {input}
+		"""
+#NOTE, here usage of wildcards is key
+
+rule labelling_converting_tab:
+	input:
+		'Preprocessing/{LIB}clipcolid_unlabeled.fasta'
+	output:
+		'Preprocessing/{LIB}.tab'
+	shell:"""
+		fasta_formatter -t -i {input} |
+		sed "s/-/_/g ; s/_/_{wildcards.LIB}_/" > {output}
+		"""
+
+rule filter_length:
+	input:
+		intab = 'Preprocessing/{LIB}.tab'
+	output:
+		outtab = 'Preprocessing/{LIB}len.tab'
+	run:
+		import pandas as pd
+
+		data = pd.read_csv(input.intab, sep='\t', names = ["Identifier", "Read"])
+		data['length'] = data['Read'].str.len()
+		filtered_data = data.query('18 <= length <= 30')
+		filtered_data.to_csv(output.outtab, sep='\t', header=None, index=False)
+
+#Note:
+#1) superimpt to define output and input as variable
+#2) pandas only runs on disk, so we have to write all our stuff to a file
+#3) subtle difference in index / index col between to_csv and read_csv
+
+rule convert_to_fasta:
+	input:
+		intab = 'Preprocessing/{LIB}len.tab'
+	output:
+		outfasta = 'Preprocessing/{LIB}len.fasta'
+	run:
+		import pandas as pd
+		import re
+
+		text_file = open(output.outfasta,"w")
+
+		data = pd.read_csv(input.intab, sep='\t', names = ["Identifier", "Read", "length"])
+		fasta_data = data[['Read', 'Identifier']]
+		fasta_data['Read'] = '-' + fasta_data['Read'].astype(str)
+		fasta_data['Identifier'] = '!' + fasta_data['Identifier'].astype(str)
+		fasta_data['fasta'] = fasta_data['Identifier'] + fasta_data['Read']
+		fasta = fasta_data['fasta']
+		string = fasta.to_string(header=False)
+
+		for line in string.split('\n'):
+			fields = re.split('!|-',line)
+			text_file.write((">{}\n{}\n".format(fields[1],fields[2])))
+
+# oh my goodness
+
+rule artifact_filter:
+	input:
+		'Preprocessing/{LIB}len.fasta'
+	output:
+		'Preprocessing/{LIB}_final_col_filter.fasta'
+	shell:"""
+		fastx_artifacts_filter -v -i {input} > {output}
+		echo "Final read identiier count:"
+		grep -c {wildcards.LIB} {output}
+		"""
+
+rule moving_files:
+	input:
+		'Preprocessing/{LIB}_final_col_filter.fasta'
+	output:
+		'Preprocessing/02preprocessouput/{LIB}_final_col_filter.fasta'
+	shell:"""
+		mkdir -p '02preprocessouput'
+		cp {input} {output}
+		"""
+	
+
