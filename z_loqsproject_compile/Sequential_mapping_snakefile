@@ -9,7 +9,8 @@ rule all:
 		'Seq_map_directory/test.txt',
 		'All_map_directory/test.txt',
 		'Seq_map_directory/count.txt',
-		'All_map_directory/count.txt'		
+		'All_map_directory/count.txt',
+		'Seq_map_directory/count.png'	
 
 rule sequential_mapping:
 	output: 
@@ -142,3 +143,11 @@ rule count_by_lib_all_map:
 					return counter
 				out_text_file.write('\n'+i+'\t'+str(sum_all(everything)))
 		out_text_file.close()
+
+rule count_to_graph_R:
+	input:
+		'Seq_map_directory/count.txt',
+	output:
+		'Seq_map_directory/count.png'
+	script:
+		"Input_files/R_scripts/Count_to_graph_1.R"
